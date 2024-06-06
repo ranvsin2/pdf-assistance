@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PDF Teaching Assistant with Voice</title>
+</head>
+<body>
+    <h1>Ask Me Anything About the Doc</h1>
+    <input type="text" id="question" placeholder="Enter your question here">
+    <button onclick="askQuestion()">Ask</button>
+    <p id="answer"></p>
+    <audio id="audio" controls style="display:none;"></audio>
+
+    <script>
+        async function askQuestion() {
+            const question = document.getElementById('question').value;
+            const response = await fetch('/ask', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question: question })
+            });
+            const data = await response.json();
+            document.getElementById('answer').innerText = data.answer;
+
+            // Play the audio response
+            const audio = document.getElementById('audio');
+            audio.style.display = 'block';
+            audio.src = data.audio;
+            audio.play();
+        }
+    </script>
+</body>
+</html>

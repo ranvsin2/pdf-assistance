@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PDF Teaching Assistant with Voice</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.9.359/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.9.359/pdf.worker.min.js"></script>
+    <style>
+        #pdf-render {
+            border: 1px solid black;
+            width: 100%;
+            height: 600px;
+        }
+        .highlight {
+            background-color: yellow;
+        }
+    </style>
+</head>
+<body>
+    <h1>PDF Teaching Assistant with Voice</h1>
+    <div id="pdf-render"></div>
+    <button id="prev-button" >Previous</button>
+    <button id="next-button">Next</button>
+    <!-- <h2>Ask a Question</h2>
+    <input type="text" id="question" placeholder="Enter your question here">
+    <button onclick="askQuestion()">Ask</button>  -->
+    <p id="answer"></p>
+    <audio id="audio" controls style="display:none;"></audio>
+    <div id="interaction-prompt" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); color:white; display:flex; justify-content:center; align-items:center; font-size:24px;">
+        Click anywhere to start the assistant
+    </div>
+    <!-- <button onclick="startVoiceRecognition()">Start Voice Recognition</button> -->
+
+    <script>
+        // PDF.js code
+        const url = '/pdf';
+        let pdfDoc = null;
+        let pageNum = 1;
+        const scale = 1.5;
+        const canvas = document.createElement('canvas');
+        document.getElementById('pdf-render').appendChild(canvas);
+        const ctx = canvas.getContext('2d');
+
+        const renderPage = num => {
+            pdfDoc.getPage(num).then(page => {
+                const viewport = page.getViewport({ scale });
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+
+                const renderCtx = {
+                    canvasContext: ctx,
+                    viewport
+                };
+                page.render(renderCtx);
+            });
+        };
+
+        const queueRenderPage = num => {
+            pageNum = num;
+            renderPage(pageNum);
+             // Clear the audio and answer text when navigating
+            document.getElementById('audio').style.display = 'none';
+            document.getElementById('answer').innerText = '';
+        };
+
+        const nextPage = () => {
+            if (pageNum >= pdfDoc.numPages) {
+                return;
+            }
+            queueRenderPage(pageNum + 1);
+            highlightButton("next-button");
+        };
+
+        const prevPage = () => {
+            if (pageNum <= 1) {
+                return;
+            }
+            queueRenderPage(pageNum - 1);
+            highlightButton("prev-button");
+        };
+
+        pdfjsLib.getDocument(url).promise.then(pdfDoc_ => {
+            pdfDoc = pdfDoc_;
+            renderPage(pageNum);
+        });
+
+        // // Voice recognition and command handling
+        // function startVoiceRecognition() {
+        //     const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+        //     recognition.lang = 'en-US';
+        //     recognition.start();
+
+        //     recognition.onresult = function(event) {
+        //         const command = event.results[0][0].transcript;
+        //         handleCommand(command);
+        //     };
+        // }
+        //   Voice recognition and command handling
+        //   function startVoiceRecognition() {
+        //     const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+        //     recognition.lang = 'en-US';
+        //     recognition.continuous = true;  // Keep the recognition running continuously
+        //     recognition.start();
+
+        //     recognition.onresult = function(event) {
+        //         const command = event.results[event.results.length - 1][0].transcript;
+        //         handleCommand(command);
+        //     };
+
+        //     recognition.onend = function() {
+        //         recognition.start();  // Restart recognition when it ends
+        //     };
+        // }
+
+        // Voice recognition and command handling
+        let recognition;
+        let audioContext;
+        let mediaStreamSource;
+        let analyserNode;
+
+        async function startVoiceRecognition() {
+            if (!recognition) {
+                recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+                recognition.lang = 'en-US';
+                recognition.continuous = true;  // Keep the recognition running continuously
+                recognition.onresult = function(event) {
+                    const command = event.results[event.results.length - 1][0].transcript.toLowerCase().trim();
+                    handleCommand(command);
+                };
+                recognition.onend = function() {
+                    recognition.start();  // Restart recognition when it ends
+                };
+            }
+
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaStreamSource = audioContext.createMediaStreamSource(stream);
+                analyserNode = audioContext.createAnalyser();
+                mediaStreamSource.connect(analyserNode);
+                analyserNode.fftSize = 2048;
+            }
+
+            recognition.start();
+        }
+        function stopAudio() {
+            const audio = document.getElementById('audio');
+            audio.pause();
+            audio.currentTime = 0; // Reset audio to the start
+            audio.style.display = 'none';
+        }
+
+        async function handleCommand(command) {
+            stopAudio();
+        
+            if (command.includes("next")) {
+                highlightButton("next-button");
+                //nextPage();
+                //return;
+            }
+            if (command.includes("stop")) {
+                stopAudio();
+            }
+
+            if (command.includes("previous")) {
+                highlightButton("prev-button");
+               // prevPage();
+               // return;
+            }
+            if (command.includes("explain")) {
+                document.getElementById('answer').innerText = "Fetching the explanation......";
+               // prevPage();
+               // return;
+            }
+            console.log("my command is --",command);
+            console.log("my page is --",pageNum);
+
+            const response = await fetch('/command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ command: command, page_num: pageNum })
+            });
+            const data = await response.json();
+            if (data.action === 'navigate') {
+                console.log("i am in page " , data.page_num);
+                queueRenderPage(data.page_num);
+            } else if (data.action === 'explain') {
+                // Play the audio explanation
+                document.getElementById('answer').innerText = data.answer;
+                const audio = document.getElementById('audio');
+                audio.style.display = 'block';
+                audio.src = data.audio;
+                audio.play().catch(error => {
+                    console.error('Error playing audio:', error);
+                });
+            }
+        }
+
+        // Question answering code
+        async function askQuestion() {
+            const question = document.getElementById('question').value;
+            const response = await fetch('/ask', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question: question, page_num: pageNum })
+            });
+            const data = await response.json();
+            document.getElementById('answer').innerText = data.answer;
+
+            // Play the audio response
+            const audio = document.getElementById('audio');
+            audio.style.display = 'block';
+            audio.src = data.audio;
+            audio.play();
+        }
+        // Automatically start voice recognition when the page loads
+        window.onload = function() {
+            const interactionPrompt = document.getElementById('interaction-prompt');
+            interactionPrompt.addEventListener('click', () => {
+                interactionPrompt.style.display = 'none';  // Hide the interaction prompt
+                startVoiceRecognition();  // Start voice recognition
+            });
+        };
+         // Function to highlight button
+         function highlightButton(buttonId) {
+            const button = document.getElementById(buttonId);
+            button.classList.add('highlight');
+            setTimeout(() => {
+                button.classList.remove('highlight');
+            }, 1000); // Remove highlight after 1 second
+        }
+    </script>
+</body>
+</html>
